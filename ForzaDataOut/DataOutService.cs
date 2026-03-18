@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Producer;
+using Azure.Identity;
 
 namespace ForzaDataOut
 {
@@ -36,7 +37,11 @@ namespace ForzaDataOut
 
             var eventHubEnabled = Config.GetValue<bool>("ForzaDataOut:EventHub:Enabled");
             var eventHubDrivingOnly = Config.GetValue<bool>("ForzaDataOut:EventHub:DrivingOnly");
-            var eventHubConnectionString = Config.GetValue<string>("ForzaDataOut:EventHub:ConnectionString");
+            var eventHubNamespace = Config.GetValue<string>("ForzaDataOut:EventHub:Namespace");
+            var eventHubName = Config.GetValue<string>("ForzaDataOut:EventHub:EventHubName");
+            var tenantId = Config.GetValue<string>("ForzaDataOut:EventHub:TenantId");
+            var clientId = Config.GetValue<string>("ForzaDataOut:EventHub:ClientId");
+            var clientSecret = Config.GetValue<string>("ForzaDataOut:EventHub:ClientSecret");
 
             var listenBindAddress = Config.GetValue<string>("ForzaDataOut:BindAddress");
             var listenPort = Config.GetValue<int>("ForzaDataOut:ListenPort");
@@ -51,12 +56,27 @@ namespace ForzaDataOut
                 Logger.LogInformation($"Console output enabled (DrivingOnly: {consoleOutputDrivingOnly})");
             }
 
-            if (eventHubEnabled && !string.IsNullOrWhiteSpace(eventHubConnectionString))
+            if (eventHubEnabled)
             {
                 try
                 {
-                    EventHubClient = new EventHubProducerClient(eventHubConnectionString);
-                    Logger.LogInformation($"Event Hub enabled (DrivingOnly: {eventHubDrivingOnly})");
+                    if (!string.IsNullOrWhiteSpace(eventHubNamespace) && !string.IsNullOrWhiteSpace(eventHubName))
+                    {
+                        if (!string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(clientId) && !string.IsNullOrWhiteSpace(clientSecret))
+                        {
+                            var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                            EventHubClient = new EventHubProducerClient(eventHubNamespace, eventHubName, credential);
+                            Logger.LogInformation($"Event Hub enabled with Service Principal authentication (Namespace: {eventHubNamespace}, EventHub: {eventHubName}, DrivingOnly: {eventHubDrivingOnly})");
+                        }
+                        else
+                        {
+                            Logger.LogError("Event Hub namespace and name configured but missing TenantId, ClientId, or ClientSecret");
+                        }
+                    }
+                    else
+                    {
+                        Logger.LogError("Event Hub enabled but Namespace and EventHubName are not configured");
+                    }
                 }
                 catch (Exception ex)
                 {
