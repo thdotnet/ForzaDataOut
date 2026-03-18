@@ -106,6 +106,11 @@ namespace ForzaDataOut
                         Logger.LogDebug($"[{telemetryData.Timestamp}] {receiveResult.Buffer.Length} bytes captured");
                     }
 
+                    if (EventHubClient != null && (!eventHubDrivingOnly || (eventHubDrivingOnly && telemetryData.IsDriving)))
+                    {
+                        await SendToEventHub(json);
+                    }
+
                     await listenServer.Broadcast(Encoding.UTF8.GetBytes(json + "\n"));
                 }
                 catch (OperationCanceledException)
