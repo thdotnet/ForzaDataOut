@@ -18,7 +18,7 @@ namespace ForzaDataOut
 
         public ListenServer(string bindAddress, int port, ILogger logger)
         {
-            BindAddress = IPAddress.Parse(bindAddress);
+            BindAddress = string.IsNullOrWhiteSpace(bindAddress) ? IPAddress.Any : IPAddress.Parse(bindAddress);
             Port = port;
             Logger = logger;
         }
