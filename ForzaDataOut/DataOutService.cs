@@ -3,6 +3,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net.Sockets;
 using System.Text;
+using Azure.Messaging.EventHubs;
+using Azure.Messaging.EventHubs.Producer;
 
 namespace ForzaDataOut
 {
@@ -14,6 +16,8 @@ namespace ForzaDataOut
 
         private FileStream? CaptureFile;
         private bool IsFirstCaptureEntry = true;
+
+        private EventHubProducerClient? EventHubClient;
 
         public DataOutService(IConfiguration config, ILogger<DataOutService> logger)
         {
@@ -30,6 +34,10 @@ namespace ForzaDataOut
             var captureDrivingOnly = Config.GetValue<bool>("ForzaDataOut:Capture:DrivingOnly");
             var savePath = Config.GetValue<string>("ForzaDataOut:Capture:SavePath");
 
+            var eventHubEnabled = Config.GetValue<bool>("ForzaDataOut:EventHub:Enabled");
+            var eventHubDrivingOnly = Config.GetValue<bool>("ForzaDataOut:EventHub:DrivingOnly");
+            var eventHubConnectionString = Config.GetValue<string>("ForzaDataOut:EventHub:ConnectionString");
+
             var listenBindAddress = Config.GetValue<string>("ForzaDataOut:BindAddress");
             var listenPort = Config.GetValue<int>("ForzaDataOut:ListenPort");
             ListenServer listenServer = new ListenServer(listenBindAddress, listenPort, Logger);
@@ -41,6 +49,19 @@ namespace ForzaDataOut
             if (consoleOutput)
             {
                 Logger.LogInformation($"Console output enabled (DrivingOnly: {consoleOutputDrivingOnly})");
+            }
+
+            if (eventHubEnabled && !string.IsNullOrWhiteSpace(eventHubConnectionString))
+            {
+                try
+                {
+                    EventHubClient = new EventHubProducerClient(eventHubConnectionString);
+                    Logger.LogInformation($"Event Hub enabled (DrivingOnly: {eventHubDrivingOnly})");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Failed to create Event Hub client");
+                }
             }
 
             try
@@ -102,6 +123,19 @@ namespace ForzaDataOut
         public override async Task StopAsync(CancellationToken cancellationToken)
         {
             await CloseCaptureFile();
+
+            if (EventHubClient != null)
+            {
+                try
+                {
+                    await EventHubClient.CloseAsync(cancellationToken);
+                    await EventHubClient.DisposeAsync();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Error closing Event Hub client");
+                }
+            }
 
             if (DataOutClient != null)
             {
@@ -186,6 +220,27 @@ namespace ForzaDataOut
                 await CaptureFile.FlushAsync();
                 CaptureFile.Close();
                 CaptureFile = null;
+            }
+        }
+
+        private async Task SendToEventHub(string json)
+        {
+            if (EventHubClient != null)
+            {
+                try
+                {
+                    using EventDataBatch eventBatch = await EventHubClient.CreateBatchAsync();
+                    if (!eventBatch.TryAdd(new EventData(Encoding.UTF8.GetBytes(json))))
+                    {
+                        Logger.LogWarning("Event is too large for the batch");
+                        return;
+                    }
+                    await EventHubClient.SendAsync(eventBatch);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error sending to Event Hub");
+                }
             }
         }
     }
